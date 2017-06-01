@@ -33,9 +33,9 @@ import org.jetbrains.kotlin.psi.psiUtil.checkReservedYieldBeforeLambda
 import org.jetbrains.kotlin.psi.psiUtil.getAnnotationEntries
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.BindingContext.EXPECTED_RETURN_TYPE
-import org.jetbrains.kotlin.resolve.BindingContextUtils
 import org.jetbrains.kotlin.resolve.BindingTrace
 import org.jetbrains.kotlin.resolve.FunctionDescriptorUtil
+import org.jetbrains.kotlin.resolve.bindingContextUtil.computeAndRecordIfNotYet
 import org.jetbrains.kotlin.resolve.checkers.UnderscoreChecker
 import org.jetbrains.kotlin.resolve.lazy.ForceResolveUtil
 import org.jetbrains.kotlin.resolve.scopes.LexicalWritableScope
@@ -173,20 +173,22 @@ internal class FunctionsTypingVisitor(facade: ExpressionTypingInternals) : Expre
             context: ExpressionTypingContext
     ): AnonymousFunctionDescriptor {
         val functionLiteral = expression.functionLiteral
-        val functionDescriptor = AnonymousFunctionDescriptor(
-            context.scope.ownerDescriptor,
-            components.annotationResolver.resolveAnnotationsWithArguments(context.scope, expression.getAnnotationEntries(), context.trace),
-            CallableMemberDescriptor.Kind.DECLARATION, functionLiteral.toSourceElement(),
-            !noExpectedType(context.expectedType) && context.expectedType.isSuspendFunctionType
-        )
-        components.functionDescriptorResolver.
-                initializeFunctionDescriptorAndExplicitReturnType(context.scope.ownerDescriptor, context.scope, functionLiteral,
-                                                                  functionDescriptor, context.trace, context.expectedType)
-        for (parameterDescriptor in functionDescriptor.valueParameters) {
-            ForceResolveUtil.forceResolveAllContents(parameterDescriptor.annotations)
+        return context.trace.computeAndRecordIfNotYet(BindingContext.FUNCTION, functionLiteral) {
+            val functionDescriptor = AnonymousFunctionDescriptor(
+                    context.scope.ownerDescriptor,
+                    components.annotationResolver.resolveAnnotationsWithArguments(context.scope, expression.getAnnotationEntries(), context.trace),
+                    CallableMemberDescriptor.Kind.DECLARATION, functionLiteral.toSourceElement(),
+                    !noExpectedType(context.expectedType) && context.expectedType.isSuspendFunctionType
+            )
+            components.functionDescriptorResolver.
+                    initializeFunctionDescriptorAndExplicitReturnType(context.scope.ownerDescriptor, context.scope, functionLiteral,
+                                                                      functionDescriptor, context.trace, context.expectedType)
+            for (parameterDescriptor in functionDescriptor.valueParameters) {
+                ForceResolveUtil.forceResolveAllContents(parameterDescriptor.annotations)
+            }
+
+            functionDescriptor
         }
-        BindingContextUtils.recordFunctionDeclarationToDescriptor(context.trace, functionLiteral, functionDescriptor)
-        return functionDescriptor
     }
 
     private fun computeReturnType(

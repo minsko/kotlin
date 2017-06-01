@@ -81,11 +81,6 @@ public class BindingContextUtils {
         return null;
     }
 
-    public static void recordFunctionDeclarationToDescriptor(@NotNull BindingTrace trace,
-            @NotNull PsiElement psiElement, @NotNull SimpleFunctionDescriptor function) {
-        trace.record(BindingContext.FUNCTION, psiElement, function);
-    }
-
     @NotNull
     public static <K, V> V getNotNull(
         @NotNull BindingContext bindingContext,

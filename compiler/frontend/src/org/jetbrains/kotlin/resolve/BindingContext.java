@@ -220,9 +220,6 @@ public interface BindingContext {
     WritableSlice<PsiElement, ClassDescriptor> CLASS = Slices.createSimpleSlice();
     WritableSlice<PsiElement, ScriptDescriptor> SCRIPT = Slices.createSimpleSlice();
     WritableSlice<KtTypeParameter, TypeParameterDescriptor> TYPE_PARAMETER = Slices.createSimpleSlice();
-    /**
-     * @see BindingContextUtils#recordFunctionDeclarationToDescriptor(BindingTrace, PsiElement, SimpleFunctionDescriptor)}
-     */
     WritableSlice<PsiElement, SimpleFunctionDescriptor> FUNCTION = Slices.createSimpleSlice();
     WritableSlice<PsiElement, ConstructorDescriptor> CONSTRUCTOR = Slices.createSimpleSlice();
     WritableSlice<ConstructorDescriptor, ResolvedCall<ConstructorDescriptor>> CONSTRUCTOR_RESOLVED_DELEGATION_CALL =

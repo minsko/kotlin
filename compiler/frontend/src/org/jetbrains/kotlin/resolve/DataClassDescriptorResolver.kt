@@ -22,6 +22,7 @@ import org.jetbrains.kotlin.descriptors.impl.SimpleFunctionDescriptorImpl
 import org.jetbrains.kotlin.descriptors.impl.ValueParameterDescriptorImpl
 import org.jetbrains.kotlin.incremental.components.NoLookupLocation
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.resolve.bindingContextUtil.computeAndRecordIfNotYet
 import org.jetbrains.kotlin.resolve.descriptorUtil.builtIns
 import org.jetbrains.kotlin.util.OperatorNameConventions
 
@@ -93,27 +94,26 @@ object DataClassDescriptorResolver {
             classDescriptor: ClassDescriptor,
             trace: BindingTrace
     ): SimpleFunctionDescriptor {
-        val functionDescriptor = SimpleFunctionDescriptorImpl.create(
-                classDescriptor,
-                Annotations.EMPTY,
-                createComponentName(parameterIndex),
-                CallableMemberDescriptor.Kind.SYNTHESIZED,
-                parameter.source
-        )
-
-        functionDescriptor.initialize(
-                null,
-                classDescriptor.thisAsReceiverParameter,
-                emptyList<TypeParameterDescriptor>(),
-                emptyList<ValueParameterDescriptor>(),
-                property.type,
-                Modality.FINAL,
-                property.visibility
-        )
-        functionDescriptor.isOperator = true
-
-        trace.record(BindingContext.DATA_CLASS_COMPONENT_FUNCTION, parameter, functionDescriptor)
-        return functionDescriptor
+        return trace.computeAndRecordIfNotYet(BindingContext.DATA_CLASS_COMPONENT_FUNCTION, parameter) {
+            SimpleFunctionDescriptorImpl.create(
+                    classDescriptor,
+                    Annotations.EMPTY,
+                    createComponentName(parameterIndex),
+                    CallableMemberDescriptor.Kind.SYNTHESIZED,
+                    parameter.source
+            ).apply {
+                initialize(
+                        null,
+                        classDescriptor.thisAsReceiverParameter,
+                        emptyList<TypeParameterDescriptor>(),
+                        emptyList<ValueParameterDescriptor>(),
+                        property.type,
+                        Modality.FINAL,
+                        property.visibility
+                )
+                isOperator = true
+            }
+        }
     }
 
     fun createCopyFunctionDescriptor(
@@ -121,41 +121,42 @@ object DataClassDescriptorResolver {
             classDescriptor: ClassDescriptor,
             trace: BindingTrace
     ): SimpleFunctionDescriptor {
-        val functionDescriptor = SimpleFunctionDescriptorImpl.create(
-                classDescriptor,
-                Annotations.EMPTY,
-                COPY_METHOD_NAME,
-                CallableMemberDescriptor.Kind.SYNTHESIZED,
-                classDescriptor.source
-        )
-
-        val parameterDescriptors = arrayListOf<ValueParameterDescriptor>()
-
-        for (parameter in constructorParameters) {
-            val propertyDescriptor = trace.bindingContext.get(BindingContext.VALUE_PARAMETER_AS_PROPERTY, parameter)
-            // If a parameter doesn't have the corresponding property, it must not have a default value in the 'copy' function
-            val declaresDefaultValue = propertyDescriptor != null
-            val parameterDescriptor = ValueParameterDescriptorImpl(
-                    functionDescriptor, null, parameter.index, parameter.annotations, parameter.name, parameter.type, declaresDefaultValue,
-                    parameter.isCrossinline, parameter.isNoinline, parameter.varargElementType, parameter.source
+        return trace.computeAndRecordIfNotYet(BindingContext.DATA_CLASS_COPY_FUNCTION, classDescriptor) {
+            val functionDescriptor = SimpleFunctionDescriptorImpl.create(
+                    classDescriptor,
+                    Annotations.EMPTY,
+                    COPY_METHOD_NAME,
+                    CallableMemberDescriptor.Kind.SYNTHESIZED,
+                    classDescriptor.source
             )
-            parameterDescriptors.add(parameterDescriptor)
-            if (declaresDefaultValue) {
-                trace.record(BindingContext.VALUE_PARAMETER_AS_PROPERTY, parameterDescriptor, propertyDescriptor)
+
+            val parameterDescriptors = arrayListOf<ValueParameterDescriptor>()
+
+            for (parameter in constructorParameters) {
+                val propertyDescriptor = trace.bindingContext.get(BindingContext.VALUE_PARAMETER_AS_PROPERTY, parameter)
+                // If a parameter doesn't have the corresponding property, it must not have a default value in the 'copy' function
+                val declaresDefaultValue = propertyDescriptor != null
+                val parameterDescriptor = ValueParameterDescriptorImpl(
+                        functionDescriptor, null, parameter.index, parameter.annotations, parameter.name, parameter.type, declaresDefaultValue,
+                        parameter.isCrossinline, parameter.isNoinline, parameter.varargElementType, parameter.source
+                )
+                parameterDescriptors.add(parameterDescriptor)
+                if (declaresDefaultValue) {
+                    trace.record(BindingContext.VALUE_PARAMETER_AS_PROPERTY, parameterDescriptor, propertyDescriptor)
+                }
             }
+
+            functionDescriptor.initialize(
+                    null,
+                    classDescriptor.thisAsReceiverParameter,
+                    emptyList<TypeParameterDescriptor>(),
+                    parameterDescriptors,
+                    classDescriptor.defaultType,
+                    Modality.FINAL,
+                    Visibilities.PUBLIC
+            )
+
+            functionDescriptor
         }
-
-        functionDescriptor.initialize(
-                null,
-                classDescriptor.thisAsReceiverParameter,
-                emptyList<TypeParameterDescriptor>(),
-                parameterDescriptors,
-                classDescriptor.defaultType,
-                Modality.FINAL,
-                Visibilities.PUBLIC
-        )
-
-        trace.record(BindingContext.DATA_CLASS_COPY_FUNCTION, classDescriptor, functionDescriptor)
-        return functionDescriptor
     }
 }

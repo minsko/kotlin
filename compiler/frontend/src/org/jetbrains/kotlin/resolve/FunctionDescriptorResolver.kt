@@ -38,6 +38,7 @@ import org.jetbrains.kotlin.resolve.DescriptorResolver.getDefaultVisibility
 import org.jetbrains.kotlin.resolve.DescriptorUtils.getDispatchReceiverParameterIfNeeded
 import org.jetbrains.kotlin.resolve.ModifiersChecker.resolveMemberModalityFromModifiers
 import org.jetbrains.kotlin.resolve.ModifiersChecker.resolveVisibilityFromModifiers
+import org.jetbrains.kotlin.resolve.bindingContextUtil.computeAndRecordIfNotYet
 import org.jetbrains.kotlin.resolve.bindingContextUtil.recordScope
 import org.jetbrains.kotlin.resolve.calls.smartcasts.DataFlowInfo
 import org.jetbrains.kotlin.resolve.calls.util.createValueParametersForInvokeInFunctionType
@@ -98,17 +99,18 @@ class FunctionDescriptorResolver(
             dataFlowInfo: DataFlowInfo,
             expectedFunctionType: KotlinType
     ): SimpleFunctionDescriptor {
-        val functionDescriptor = functionConstructor(
-                containingDescriptor,
-                annotationResolver.resolveAnnotationsWithoutArguments(scope, function.modifierList, trace),
-                function.nameAsSafeName,
-                CallableMemberDescriptor.Kind.DECLARATION,
-                function.toSourceElement()
-        )
-        initializeFunctionDescriptorAndExplicitReturnType(containingDescriptor, scope, function, functionDescriptor, trace, expectedFunctionType)
-        initializeFunctionReturnTypeBasedOnFunctionBody(scope, function, functionDescriptor, trace, dataFlowInfo)
-        BindingContextUtils.recordFunctionDeclarationToDescriptor(trace, function, functionDescriptor)
-        return functionDescriptor
+        return trace.computeAndRecordIfNotYet(BindingContext.FUNCTION, function) {
+            val functionDescriptor = functionConstructor(
+                    containingDescriptor,
+                    annotationResolver.resolveAnnotationsWithoutArguments(scope, function.modifierList, trace),
+                    function.nameAsSafeName,
+                    CallableMemberDescriptor.Kind.DECLARATION,
+                    function.toSourceElement()
+            )
+            initializeFunctionDescriptorAndExplicitReturnType(containingDescriptor, scope, function, functionDescriptor, trace, expectedFunctionType)
+            initializeFunctionReturnTypeBasedOnFunctionBody(scope, function, functionDescriptor, trace, dataFlowInfo)
+            functionDescriptor
+        }
     }
 
     private fun initializeFunctionReturnTypeBasedOnFunctionBody(
@@ -146,8 +148,8 @@ class FunctionDescriptorResolver(
                                                TraceBasedLocalRedeclarationChecker(trace, overloadChecker), LexicalScopeKind.FUNCTION_HEADER)
 
         val typeParameterDescriptors = descriptorResolver.
-                resolveTypeParametersForDescriptor(functionDescriptor, headerScope, scope, function.typeParameters, trace)
-        descriptorResolver.resolveGenericBounds(function, functionDescriptor, headerScope, typeParameterDescriptors, trace)
+                resolveTypeParametersForDescriptor(functionDescriptor, headerScope, scope, headerScope, function.typeParameters, trace)
+        descriptorResolver.checkBoundsAndConstraints(function, functionDescriptor, headerScope, trace)
 
         val receiverTypeRef = function.receiverTypeReference
         val receiverType =
@@ -289,39 +291,39 @@ class FunctionDescriptorResolver(
             valueParameters: List<KtParameter>,
             trace: BindingTrace
     ): ClassConstructorDescriptorImpl {
-        val constructorDescriptor = ClassConstructorDescriptorImpl.create(
-                classDescriptor,
-                annotationResolver.resolveAnnotationsWithoutArguments(scope, modifierList, trace),
-                isPrimary,
-                declarationToTrace.toSourceElement()
-        )
-        if (classDescriptor.isHeader) {
-            constructorDescriptor.isHeader = true
+        return trace.computeAndRecordIfNotYet(BindingContext.CONSTRUCTOR, declarationToTrace as? PsiElement) {
+            val constructorDescriptor = ClassConstructorDescriptorImpl.create(
+                    classDescriptor,
+                    annotationResolver.resolveAnnotationsWithoutArguments(scope, modifierList, trace),
+                    isPrimary,
+                    declarationToTrace.toSourceElement()
+            )
+            if (classDescriptor.isHeader) {
+                constructorDescriptor.isHeader = true
+            }
+            if (classDescriptor.isImpl) {
+                constructorDescriptor.isImpl = true
+            }
+            val parameterScope = LexicalWritableScope(
+                    scope,
+                    constructorDescriptor,
+                    false,
+                    TraceBasedLocalRedeclarationChecker(trace, overloadChecker),
+                    LexicalScopeKind.CONSTRUCTOR_HEADER
+            )
+            val constructor = constructorDescriptor.initialize(
+                    resolveValueParameters(constructorDescriptor, parameterScope, valueParameters, trace, null),
+                    resolveVisibilityFromModifiers(
+                            modifierList,
+                            DescriptorUtils.getDefaultConstructorVisibility(classDescriptor)
+                    )
+            )
+            constructor.returnType = classDescriptor.defaultType
+            if (DescriptorUtils.isAnnotationClass(classDescriptor)) {
+                CompileTimeConstantUtils.checkConstructorParametersType(valueParameters, trace)
+            }
+            constructorDescriptor
         }
-        if (classDescriptor.isImpl) {
-            constructorDescriptor.isImpl = true
-        }
-        if (declarationToTrace is PsiElement)
-            trace.record(BindingContext.CONSTRUCTOR, declarationToTrace, constructorDescriptor)
-        val parameterScope = LexicalWritableScope(
-                scope,
-                constructorDescriptor,
-                false,
-                TraceBasedLocalRedeclarationChecker(trace, overloadChecker),
-                LexicalScopeKind.CONSTRUCTOR_HEADER
-        )
-        val constructor = constructorDescriptor.initialize(
-                resolveValueParameters(constructorDescriptor, parameterScope, valueParameters, trace, null),
-                resolveVisibilityFromModifiers(
-                        modifierList,
-                        DescriptorUtils.getDefaultConstructorVisibility(classDescriptor)
-                )
-        )
-        constructor.returnType = classDescriptor.defaultType
-        if (DescriptorUtils.isAnnotationClass(classDescriptor)) {
-            CompileTimeConstantUtils.checkConstructorParametersType(valueParameters, trace)
-        }
-        return constructor
     }
 
     private fun resolveValueParameters(

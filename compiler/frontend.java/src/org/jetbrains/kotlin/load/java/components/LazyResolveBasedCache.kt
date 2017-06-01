@@ -29,13 +29,12 @@ import org.jetbrains.kotlin.load.java.structure.impl.JavaElementImpl
 import org.jetbrains.kotlin.load.java.structure.impl.JavaFieldImpl
 import org.jetbrains.kotlin.load.java.structure.impl.JavaMethodImpl
 import org.jetbrains.kotlin.resolve.BindingContext.*
-import org.jetbrains.kotlin.resolve.BindingContextUtils
 import org.jetbrains.kotlin.resolve.lazy.ResolveSession
 
 class LazyResolveBasedCache(resolveSession: ResolveSession) : AbstractJavaResolverCache(resolveSession) {
 
     override fun recordMethod(method: JavaMethod, descriptor: SimpleFunctionDescriptor) {
-        BindingContextUtils.recordFunctionDeclarationToDescriptor(trace, (method as? JavaMethodImpl)?.psi ?: return, descriptor)
+        trace.record(FUNCTION, (method as? JavaMethodImpl)?.psi ?: return, descriptor)
     }
 
     override fun recordConstructor(element: JavaElement, descriptor: ConstructorDescriptor) {

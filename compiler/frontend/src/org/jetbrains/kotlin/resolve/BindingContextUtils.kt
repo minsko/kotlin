@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+@file:Suppress("UNCHECKED_CAST")
+
 package org.jetbrains.kotlin.resolve.bindingContextUtil
 
 import com.intellij.psi.PsiElement
@@ -35,7 +37,7 @@ import org.jetbrains.kotlin.resolve.scopes.utils.takeSnapshot
 import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.expressions.typeInfoFactory.noTypeInfo
 import org.jetbrains.kotlin.types.typeUtil.makeNotNullable
-import org.jetbrains.kotlin.util.slicedMap.ReadOnlySlice
+import org.jetbrains.kotlin.util.slicedMap.WritableSlice
 
 fun KtReturnExpression.getTargetFunctionDescriptor(context: BindingContext): FunctionDescriptor? {
     val targetLabel = getTargetLabel()
@@ -74,7 +76,9 @@ fun <C : ResolutionContext<C>> ResolutionContext<C>.recordDataFlowInfo(expressio
 
 fun BindingTrace.recordScope(scope: LexicalScope, element: KtElement?) {
     if (element != null) {
-        record(BindingContext.LEXICAL_SCOPE, element, scope.takeSnapshot() as LexicalScope)
+        computeAndRecordIfNotYet(BindingContext.LEXICAL_SCOPE, element) {
+            scope.takeSnapshot() as LexicalScope
+        }
     }
 }
 
@@ -119,4 +123,17 @@ fun KtTypeElement.getAbbreviatedTypeOrType(context: BindingContext): KotlinType?
         }
         else -> null
     }
+}
+
+inline fun <K, V> BindingTrace.computeAndRecordIfNotYet(slice: WritableSlice<K, in V>, key: K?, function: () -> V): V {
+    if (key != null) {
+        val oldValue = get(slice, key)
+        if (oldValue != null) return oldValue as V
+    }
+
+    val newValue = function()
+    if (key != null) {
+        record(slice, key, newValue)
+    }
+    return newValue
 }
